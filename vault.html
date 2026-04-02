@@ -292,6 +292,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;m
       <div class="ph">
         <div class="pt" id="dash-title">Vault.</div>
         <div class="ps" id="dash-sub">—</div>
+      <div id="last-updated" style="font-size:10px;color:var(--mu);font-family:'JetBrains Mono',monospace;margin-top:3px;display:none">updated —</div>
       </div>
 
       <!-- month strip -->
@@ -493,6 +494,67 @@ const ALLCATS=['Food & Dining','Groceries','Transport','Shopping','Utilities','H
   'Health','Entertainment','Investments','Transfers','Credit Card Payment',
   'Fantasy & Gaming','Income','Tax','Staff & Domestic Help','Other'];
 
+// ═══════════ INDEXEDDB ═══════════
+const DB_NAME='vault_db',DB_VER=1,STORE='data';
+let db=null;
+
+function openDB(){
+  return new Promise((res,rej)=>{
+    const req=indexedDB.open(DB_NAME,DB_VER);
+    req.onupgradeneeded=e=>{
+      const d=e.target.result;
+      if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE);
+    };
+    req.onsuccess=e=>{db=e.target.result;res(db)};
+    req.onerror=e=>rej(e);
+  });
+}
+
+function dbGet(key){
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(STORE,'readonly');
+    const req=tx.objectStore(STORE).get(key);
+    req.onsuccess=e=>res(e.target.result);
+    req.onerror=e=>rej(e);
+  });
+}
+
+function dbSet(key,val){
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(STORE,'readwrite');
+    const req=tx.objectStore(STORE).put(val,key);
+    req.onsuccess=()=>res();
+    req.onerror=e=>rej(e);
+  });
+}
+
+async function saveToDB(txns,ts){
+  await dbSet('transactions',txns);
+  await dbSet('manual',MAN);
+  await dbSet('updated',ts||new Date().toISOString());
+}
+
+async function loadFromDB(){
+  const txns=await dbGet('transactions');
+  const man=await dbGet('manual');
+  const ts=await dbGet('updated');
+  return{txns:txns||null,man:man||[],ts:ts||null};
+}
+
+function fmtTS(iso){
+  if(!iso)return'—';
+  const d=new Date(iso);
+  return d.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})+
+    ' '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+}
+
+function showTimestamp(ts){
+  const el=document.getElementById('last-updated');
+  if(!ts){el.style.display='none';return}
+  el.textContent='updated '+fmtTS(ts);
+  el.style.display='block';
+}
+
 // ═══════════ FILE LOADING ═══════════
 document.getElementById('fi').addEventListener('change',e=>{loadFile(e.target.files[0])});
 document.getElementById('ci').addEventListener('change',e=>{
@@ -503,9 +565,27 @@ document.getElementById('ci').addEventListener('change',e=>{
 });
 
 function loadFile(f){if(!f)return;const r=new FileReader();r.onload=ev=>loadJSON(ev.target.result);r.readAsText(f)}
-function loadJSON(txt){try{initApp(JSON.parse(txt))}catch{alert('Could not parse file.')}}
 
-function parseCSV(txt){
+async function loadJSON(txt){
+  let incoming;
+  try{incoming=JSON.parse(txt)}catch{alert('Could not parse file.');return}
+  // Merge with existing stored data
+  const ts=new Date().toISOString();
+  ALL=dedup([...ALL,...incoming]);
+  await saveToDB(ALL,ts);
+  showTimestamp(ts);
+  rebuild();
+  document.getElementById('dash-empty').style.display='none';
+  document.getElementById('hero-row').style.display='flex';
+  document.getElementById('mstrip').style.display='flex';
+  document.querySelectorAll('.sl').forEach(e=>e.style.display='');
+  document.getElementById('recent-txns').style.display='';
+  renderAll();
+  const added=incoming.length,total=ALL.length;
+  console.log(`Merged: ${added} incoming, ${total} total after dedup`);
+}
+
+async function parseCSV(txt){
   const lines=txt.trim().split('\n');if(lines.length<2){alert('CSV empty');return}
   const hdrs=lines[0].split(',').map(h=>h.trim().toLowerCase().replace(/"/g,''));
   const di=hdrs.findIndex(h=>h.includes('date')&&!h.includes('value'));
@@ -528,8 +608,12 @@ function parseCSV(txt){
     txns.push({date,description:desc,amount,type,category:guessCat(desc),account:'CSV Import',source_file:'csv'});
   }
   if(!txns.length){alert('No transactions found.');return}
-  ALL=dedup([...ALL,...txns]);rebuild();renderAll();
-  alert(`✓ Imported ${txns.length} transactions.`);
+  ALL=dedup([...ALL,...txns]);
+  const ts=new Date().toISOString();
+  await saveToDB(ALL,ts);
+  showTimestamp(ts);
+  rebuild();renderAll();
+  alert(`✓ Merged ${txns.length} transactions from CSV. Total: ${ALL.length}.`);
 }
 
 function guessCat(d){
@@ -550,7 +634,7 @@ function guessCat(d){
   return 'Other';
 }
 
-function loadDemo(){
+async function loadDemo(){
   const ms=[{d:'Swiggy',c:'Food & Dining',r:[200,1200]},{d:'Zomato',c:'Food & Dining',r:[300,900]},
     {d:'Blue Tokai',c:'Food & Dining',r:[180,480]},{d:'DMart',c:'Groceries',r:[800,4000]},
     {d:'BigBasket',c:'Groceries',r:[500,2500]},{d:'Uber',c:'Transport',r:[80,400]},
@@ -572,18 +656,22 @@ function loadDemo(){
       txns.push({date:`${yr}-${S(mn+1)}-${S(day)}`,description:m.d,amount:amt,type:'debit',category:m.c,account:Math.random()>.5?'HDFC_Primary':'Axis_Magnus'});
     }
   }
-  initApp(txns.sort((a,b)=>b.date.localeCompare(a.date)));
+  const ts=new Date().toISOString();
+  await saveToDB(txns.sort((a,b)=>b.date.localeCompare(a.date)),ts);
+  initApp(txns,ts);
 }
 
 function S(n){return String(n).padStart(2,'0')}
 
-function initApp(data){
+function initApp(data,ts){
   ALL=data;
-  try{MAN=JSON.parse(localStorage.getItem('vm')||'[]')}catch{MAN=[]}
   rebuild();
+  showTimestamp(ts||null);
   document.getElementById('dash-empty').style.display='none';
   document.getElementById('hero-row').style.display='flex';
   document.getElementById('mstrip').style.display='flex';
+  document.querySelectorAll('.sl').forEach(e=>e.style.display='');
+  document.getElementById('recent-txns').style.display='';
   populateCatSel();
   renderAll();
 }
@@ -1027,7 +1115,7 @@ function setType(t){
   document.getElementById('btn-d').className='tbtn'+(t==='debit'?' ad':'');
   document.getElementById('btn-c').className='tbtn'+(t==='credit'?' ac':'');
 }
-function submitTxn(){
+async function submitTxn(){
   const amt=parseFloat(document.getElementById('f-amt').value);
   const date=document.getElementById('f-date').value;
   const desc=document.getElementById('f-desc').value.trim();
@@ -1035,21 +1123,34 @@ function submitTxn(){
   const acc=document.getElementById('f-acc').value.trim();
   if(!amt||!date||!desc){alert('Please fill in Amount, Date and Description.');return}
   MAN.push({date,description:desc,amount:amt,type:ACT_TYPE,category:cat,account:acc||'Manual',source_file:'manual'});
-  try{localStorage.setItem('vm',JSON.stringify(MAN))}catch{}
+  try{await dbSet('manual',MAN)}catch{}
   document.getElementById('f-amt').value='';
   document.getElementById('f-desc').value='';
   document.getElementById('f-acc').value='';
   closeSheet();rebuild();renderAll();
 }
 
-// ═══════════ INIT ═══════════
-// Show empty state on load
-document.getElementById('hero-row').style.display='none';
-document.getElementById('mstrip').style.display='none';
-document.getElementById('dash-empty').style.display='flex';
-document.querySelectorAll('.sl').forEach(e=>e.style.display='none');
-document.getElementById('recent-txns').style.display='none';
-populateCatSel();
+// ═══════════ STARTUP ═══════════
+(async()=>{
+  await openDB();
+  const{txns,man,ts}=await loadFromDB();
+  MAN=man;
+  populateCatSel();
+
+  if(txns&&txns.length){
+    // Data found in DB — load silently
+    ALL=txns;
+    rebuild();
+    initApp(ALL,ts);
+  } else {
+    // No stored data — show empty state
+    document.getElementById('hero-row').style.display='none';
+    document.getElementById('mstrip').style.display='none';
+    document.getElementById('dash-empty').style.display='flex';
+    document.querySelectorAll('.sl').forEach(e=>e.style.display='none');
+    document.getElementById('recent-txns').style.display='none';
+  }
+})();
 
 // Wire up empty state file input
 document.getElementById('fi').addEventListener('change',e=>loadFile(e.target.files[0]));
