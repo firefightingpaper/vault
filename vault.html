@@ -271,12 +271,12 @@ input[type=file]{display:none}
 <body>
 
 <!-- ══ AUTH ══ -->
-<div class="auth-wrap" id="auth-wrap" style="display:flex;opacity:1">
+<div class="auth-wrap" id="auth-wrap" style="display:none">
   <div class="auth-logo">Vault<span>.</span></div>
   <div class="auth-tag">private · local · yours</div>
 
   <!-- Profile list -->
-  <div class="auth-panel" id="plist-panel" style="display:flex;flex-direction:column">
+  <div class="auth-panel" id="plist-panel">
     <div id="plist"></div>
     <div class="auth-or"><div class="auth-or-line"></div><div class="auth-or-txt">or</div><div class="auth-or-line"></div></div>
     <button class="auth-new" onclick="showPanel('new')">+ Create new profile</button>
@@ -532,48 +532,69 @@ async function loadProfs(){PROFS=await dbg('profiles')||[]}
 async function saveProfs(){await dbs('profiles',PROFS)}
 
 function showPanel(name){
-  // Always ensure auth overlay is visible
-  const authWrap=document.getElementById('auth-wrap');
-  authWrap.style.display='flex';
-  authWrap.style.opacity='1';
-  authWrap.classList.remove('hidden');
-  // Show correct panel
-  ['plist','pw','new'].forEach(n=>{
-    const el=document.getElementById(n+'-panel');
-    if(el)el.style.display=(n===name)?'flex':'none';
-  });
-  if(name==='list')renderPList();
-  if(name==='pw'){
-    try{document.getElementById('pw-in').value='';setTimeout(()=>document.getElementById('pw-in').focus(),300)}catch(e){}
-  }
-  if(name==='new'){
-    try{setTimeout(()=>document.getElementById('np-name').focus(),300)}catch(e){}
-  }
-  try{document.getElementById('pw-err').style.display='none'}catch(e){}
-  try{document.getElementById('np-err').style.display='none'}catch(e){}
+  try{
+    ['plist','pw','new'].forEach(n=>{
+      const el=document.getElementById(n+'-panel');
+      if(el)el.style.display=(n===name)?'flex':'none';
+    });
+    if(name==='list')renderPList();
+    if(name==='pw'){
+      try{document.getElementById('pw-in').value=''}catch(e){}
+      try{document.getElementById('pw-err').style.display='none'}catch(e){}
+      setTimeout(()=>{try{document.getElementById('pw-in').focus()}catch(e){}},300);
+    }
+    if(name==='new'){
+      try{document.getElementById('np-err').style.display='none'}catch(e){}
+      setTimeout(()=>{try{document.getElementById('np-name').focus()}catch(e){}},300);
+    }
+  }catch(e){console.error('showPanel:',e);}
+}
+
+async function deleteProfileFromList(id,name){
+  if(!confirm('Delete profile "'+name+'" and all its data? This cannot be undone.'))return;
+  PROFS=PROFS.filter(p=>p.id!==id);
+  await saveProfs();
+  try{await dbs(pk(id,'txns'),[]);await dbs(pk(id,'man'),[]);}catch(e){}
+  renderPList();
 }
 
 function renderPList(){
   const el=document.getElementById('plist');
   if(!el)return;
   if(!PROFS.length){
-    el.innerHTML='<div style="text-align:center;color:var(--mu);font-size:13px;padding:16px 0 10px;font-family:\'JetBrains Mono\',\'Courier New\',monospace">No profiles yet</div>';
+    el.innerHTML='<div style="text-align:center;color:#4e4848;font-size:13px;padding:16px 0 10px;font-family:monospace">No profiles yet</div>';
     return;
   }
-  el.innerHTML=PROFS.map(p=>`
-    <div class="pcard" onclick="selProf('${p.id}')">
-      <div class="pavatar">${p.name[0].toUpperCase()}</div>
-      <div style="flex:1;min-width:0">
-        <div class="pname">${p.name}</div>
-        <div class="pmeta">${p.txn_count||0} transactions${p.ts?' · '+fmtTS(p.ts):''}</div>
-      </div>
-      <div style="color:var(--mu)">›</div>
-    </div>`).join('');
+  el.innerHTML=PROFS.map((p,i)=>
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'+
+      '<div class="pcard" style="flex:1;margin-bottom:0" data-pid="'+p.id+'" onclick="selProfById(this)">'+
+        '<div class="pavatar">'+p.name[0].toUpperCase()+'</div>'+
+        '<div style="flex:1;min-width:0">'+
+          '<div class="pname">'+p.name+'</div>'+
+          '<div class="pmeta">'+(p.txn_count||0)+' transactions'+(p.ts?' · '+fmtTS(p.ts):'')+'</div>'+
+        '</div>'+
+        '<div style="color:var(--mu)">›</div>'+
+      '</div>'+
+      '<button data-pid="'+p.id+'" onclick="delProfById(this)" style="background:rgba(224,92,92,0.1);border:1px solid rgba(224,92,92,0.2);border-radius:12px;padding:10px 12px;color:var(--red);font-size:13px;cursor:pointer;flex-shrink:0">🗑</button>'+
+    '</div>'
+  ).join('');
 }
 
+function selProfById(el){selProf(el.dataset.pid)}
+async function delProfById(el){
+  const id=el.dataset.pid;
+  const p=PROFS.find(p=>p.id===id);
+  if(!p)return;
+  if(!confirm('Delete profile "'+p.name+'" and all its data?'))return;
+  PROFS=PROFS.filter(x=>x.id!==id);
+  try{await saveProfs()}catch(e){console.error(e)}
+  try{await dbs(pk(id,'txns'),[]);await dbs(pk(id,'man'),[]);}catch(e){}
+  renderPList();
+}
 function selProf(id){
-  SEL=PROFS.find(p=>p.id===id);if(!SEL)return;
-  document.getElementById('pw-title').textContent=`Welcome back, ${SEL.name}`;
+  SEL=PROFS.find(p=>p.id===id);
+  if(!SEL){console.error('Profile not found:',id,'PROFS:',PROFS);return;}
+  document.getElementById('pw-title').textContent='Welcome back, '+SEL.name;
   showPanel('pw');
 }
 
@@ -590,7 +611,8 @@ async function submitPW(){
 
 async function loginProf(id){
   CUR=id;
-  document.getElementById('auth-wrap').classList.add('hidden');
+  const aw=document.getElementById('auth-wrap');
+  aw.style.display='none';
   document.getElementById('app').style.display='flex';
   const txns=await dbg(pk(id,'txns'))||[];
   const man=await dbg(pk(id,'man'))||[];
@@ -624,8 +646,21 @@ function switchProfile(){
   closeSet();
   ALL=[];MAN=[];MONTHS=[];ACT_M=null;CUR=null;SEL=null;
   document.getElementById('app').style.display='none';
-  document.getElementById('auth-wrap').classList.remove('hidden');
+  showAuthScreen();
+}
+function showAuthScreen(){
+  console.log('showAuthScreen called');
+  const aw=document.getElementById('auth-wrap');
+  if(!aw){
+    console.error('auth-wrap NOT FOUND');
+    document.body.innerHTML='<div style="color:red;padding:20px;font-size:16px">ERROR: auth-wrap not found</div>';
+    return;
+  }
+  console.log('auth-wrap found');
+  aw.style.cssText='display:flex;opacity:1;pointer-events:all;position:fixed;top:0;left:0;right:0;bottom:0;z-index:2000;background:#0d0d0d;flex-direction:column;align-items:center;justify-content:center;padding:40px 32px';
+  console.log('style set');
   showPanel('list');
+  console.log('showPanel done');
 }
 
 // ══════════════ STATE ══════════════
@@ -775,21 +810,25 @@ function renderCharts(){
 function setP(p){ACT_P=p;ACT_SP=null;SEL_CI=null;CD_OPEN=false;renderCharts()}
 
 function getBuckets(){
+  if(!MONTHS.length)return[{label:'No data',yms:[],txns:[]}];
   if(ACT_P==='monthly')return MONTHS.slice().reverse().map(m=>({label:mshort(m),yms:[m],txns:mtxns(m)}));
-  if(ACT_P==='quarterly'){const qm={};MONTHS.forEach(m=>{const[y,mo]=m.split('-');const q=Math.ceil(+mo/3);const k=`${y}-Q${q}`;if(!qm[k])qm[k]={label:`Q${q} ${y}`,yms:[]};qm[k].yms.push(m)});return Object.entries(qm).sort((a,b)=>a[0].localeCompare(b[0])).map(([,v])=>({...v,txns:v.yms.flatMap(m=>mtxns(m))}))}
-  if(ACT_P==='yearly'){const ym={};MONTHS.forEach(m=>{const y=m.split('-')[0];if(!ym[y])ym[y]={label:y,yms:[]};ym[y].yms.push(m)});return Object.entries(ym).sort((a,b)=>+a[0]-+b[0]).map(([,v])=>({...v,txns:v.yms.flatMap(m=>mtxns(m))}))}
+  if(ACT_P==='quarterly'){const qm={};MONTHS.forEach(m=>{const[y,mo]=m.split('-');const q=Math.ceil(+mo/3);const k=y+'-Q'+q;if(!qm[k])qm[k]={label:'Q'+q+' '+y,yms:[]};qm[k].yms.push(m)});const r=Object.entries(qm).sort((a,b)=>a[0].localeCompare(b[0])).map(([,v])=>({...v,txns:v.yms.flatMap(m=>mtxns(m))}));return r.length?r:[{label:'No data',yms:[],txns:[]}]}
+  if(ACT_P==='yearly'){const ym={};MONTHS.forEach(m=>{const y=m.split('-')[0];if(!ym[y])ym[y]={label:y,yms:[]};ym[y].yms.push(m)});const r=Object.entries(ym).sort((a,b)=>+a[0]-+b[0]).map(([,v])=>({...v,txns:v.yms.flatMap(m=>mtxns(m))}));return r.length?r:[{label:'No data',yms:[],txns:[]}]}
   return[{label:'All Time',yms:MONTHS,txns:combined()}];
 }
 
 function renderCP(){
   const buckets=getBuckets();
+  if(!buckets.length){document.getElementById('charts-sub').textContent='No data';return}
+  const ab=(ACT_SP?buckets.find(b=>b.label===ACT_SP):null)||buckets[buckets.length-1];
+  if(!ab||!ab.txns){document.getElementById('charts-sub').textContent='No data';return}
   if(ACT_P==='monthly'||ACT_P==='all'){document.getElementById('spstrip').style.display='none'}
   else{
     document.getElementById('spstrip').style.display='flex';
-    const act=ACT_SP||buckets[buckets.length-1].label;
-    document.getElementById('spstrip').innerHTML=buckets.map(b=>`<div class="spchip${b.label===act?' active':''}" onclick="setSP('${b.label}')">${b.label}</div>`).join('');
+    const act=ACT_SP||ab.label;
+    document.getElementById('spstrip').innerHTML=buckets.map(b=>'<div class="spchip'+(b.label===act?' active':'')+'" data-sp="'+b.label+'">'+b.label+'</div>').join('');
+    document.querySelectorAll('#spstrip .spchip').forEach(el=>el.addEventListener('click',()=>setSP(el.dataset.sp)));
   }
-  const ab=(ACT_SP?buckets.find(b=>b.label===ACT_SP):null)||buckets[buckets.length-1];
   const aS=sum(deb(ab.txns)),aI=sum(cre(ab.txns)),aSv=aI-aS;
   document.getElementById('charts-sub').textContent=`${ab.label} · ${ab.txns.length} transactions`;
   document.getElementById('stats-row').innerHTML=`
@@ -798,7 +837,8 @@ function renderCP(){
     <div class="scard"><div class="sval ${aSv>=0?'gd':'r'}">${fmt(Math.abs(aSv))}</div><div class="slbl">${aSv>=0?'Saved':'Deficit'}</div></div>`;
   const mx=Math.max(...buckets.map(b=>sum(deb(b.txns))),1);
   document.getElementById('cpl').textContent=ab.label;
-  document.getElementById('bwrap').innerHTML=buckets.map(b=>{const s=sum(deb(b.txns)),isA=b.label===ab.label;return`<div class="bcol${isA?' hl':' hl2'}" onclick="setSP('${b.label}')"><div class="binner"><div class="brect" style="height:${Math.round(s/mx*100)}%"></div></div><div class="bval">${b.label.length>6?b.label.slice(0,6):b.label}</div></div>`}).join('');
+  document.getElementById('bwrap').innerHTML=buckets.map(b=>{const s=sum(deb(b.txns)),isA=b.label===ab.label;return'<div class="bcol'+(isA?' hl':' hl2')+'" data-sp="'+b.label+'"><div class="binner"><div class="brect" style="height:'+Math.round(s/mx*100)+'%"></div></div><div class="bval">'+(b.label.length>6?b.label.slice(0,6):b.label)+'</div></div>'}).join('');
+  document.querySelectorAll('#bwrap .bcol').forEach(el=>el.addEventListener('click',()=>setSP(el.dataset.sp)));
   renderDonut(ab);renderTrend(ab);
 }
 function setSP(label){ACT_SP=label;SEL_CI=null;CD_OPEN=false;renderCP()}
@@ -966,60 +1006,87 @@ async function saveGistConfig(){
 async function createGist(token){
   setSyncSt('Creating Gist…','ld');
   try{
-    const res=await fetch('https://api.github.com/gists',{method:'POST',headers:{'Authorization':`token ${token}`,'Content-Type':'application/json'},body:JSON.stringify({description:'Vault Finance Data',public:false,files:{'transactions.json':{content:JSON.stringify(ALL,null,2)}}})});
-    if(!res.ok)throw new Error((await res.json()).message||res.statusText);
+    const res=await fetch('https://api.github.com/gists',{
+      method:'POST',
+      headers:{'Authorization':'token '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({description:'Vault Finance Data',public:false,files:{'transactions.json':{content:JSON.stringify(ALL.length?ALL:[],null,2)}}})
+    });
+    if(!res.ok){const j=await res.json();throw new Error(j.message||res.statusText)}
     const data=await res.json();
     await dbs(pk(CUR,'gi'),data.id);
     document.getElementById('gist-id').value=data.id;
-    setSyncSt(`✓ Gist created. ID: ${data.id.slice(0,12)}… — copy this for other devices.`,'ok');
-  }catch(e){setSyncSt('Error: '+e.message,'err')}
+    setSyncSt('✓ Gist created. ID: '+data.id+' — copy this ID for your other devices.','ok');
+  }catch(e){setSyncSt('Error: '+e.message,'err');console.error('createGist:',e)}
 }
 
 async function syncToGist(token,gistId,all,ts,silent=false){
   if(!silent)setSyncSt('Syncing…','ld');
   try{
-    const res=await fetch(`https://api.github.com/gists/${gistId}`,{method:'PATCH',headers:{'Authorization':`token ${token}`,'Content-Type':'application/json'},body:JSON.stringify({files:{'transactions.json':{content:JSON.stringify(all,null,2)}}})});
-    if(!res.ok)throw new Error((await res.json()).message||res.statusText);
+    const res=await fetch('https://api.github.com/gists/'+gistId,{
+      method:'PATCH',
+      headers:{'Authorization':'token '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({files:{'transactions.json':{content:JSON.stringify(all,null,2)}}})
+    });
+    if(!res.ok){const j=await res.json();throw new Error(j.message||res.statusText)}
     if(!silent)setSyncSt('✓ Synced · '+fmtTS(ts),'ok');
-  }catch(e){if(!silent)setSyncSt('Sync error: '+e.message,'err')}
+  }catch(e){if(!silent)setSyncSt('Sync error: '+e.message,'err');console.error('syncToGist:',e)}
 }
 
 async function syncFromGist(token,gistId,silent=false){
   if(!silent)setSyncSt('Fetching from Gist…','ld');
   try{
-    const res=await fetch(`https://api.github.com/gists/${gistId}`,{headers:{'Authorization':`token ${token}`}});
-    if(!res.ok)throw new Error((await res.json()).message||res.statusText);
+    const res=await fetch('https://api.github.com/gists/'+gistId,{headers:{'Authorization':'token '+token}});
+    if(!res.ok){const j=await res.json();throw new Error(j.message||res.statusText)}
     const data=await res.json();
-    const content=data.files['transactions.json']?.content;
-    if(!content)throw new Error('transactions.json not found in Gist');
-    const incoming=JSON.parse(content);
+    const raw=data.files&&data.files['transactions.json']&&data.files['transactions.json'].content;
+    if(!raw)throw new Error('transactions.json not found in Gist');
+    let incoming;
+    try{incoming=JSON.parse(raw)}catch(e){throw new Error('Gist data is not valid JSON')}
+    if(!Array.isArray(incoming))throw new Error('Gist data is not a valid transaction array');
+    if(incoming.length===0&&!silent){setSyncSt('Gist is empty — no data to pull','ld');return}
     ALL=dedup([...ALL,...incoming]);
+    if(!CUR){if(!silent)setSyncSt('Not logged in','err');return}
     const ts=await persist();
     rebuild();initApp(ALL,ts);
-    if(!silent)setSyncSt(`✓ Synced from Gist · ${incoming.length} transactions`,'ok');
-  }catch(e){if(!silent)setSyncSt('Sync error: '+e.message,'err')}
+    if(!silent)setSyncSt('✓ Synced · '+incoming.length+' transactions','ok');
+  }catch(e){if(!silent)setSyncSt('Sync error: '+e.message,'err');console.error('syncFromGist:',e)}
 }
 
 function setSyncSt(msg,type){const el=document.getElementById('syncst');if(el){el.textContent=msg;el.className='syncst '+(type||'')}}
 
 // ══════════════ STARTUP ══════════════
-// Render auth screen immediately — synchronous, no DB needed
-document.getElementById('auth-wrap').style.display='flex';
-document.getElementById('plist-panel').style.display='flex';
-document.getElementById('pw-panel').style.display='none';
-document.getElementById('new-panel').style.display='none';
-renderPList(); // shows "No profiles yet" + create button immediately
-
-// Load DB in background — updates profile list when ready
-(async()=>{
+function startApp(){
+  console.log('STEP 1: startApp called');
   try{
-    await openDB();
-    await loadProfs();
-    renderPList(); // refresh with real profiles from DB
+    showAuthScreen();
+    console.log('STEP 2: showAuthScreen done');
   }catch(e){
-    console.error('DB error — continuing without persistence:',e);
+    console.error('STEP 2 FAILED: showAuthScreen error:',e);
+    // Show raw error on screen so we can see it on iPhone
+    document.body.innerHTML='<div style="color:red;padding:20px;font-size:14px">showAuthScreen error: '+e.message+'<br>'+e.stack+'</div>';
+    return;
   }
-})();
+  setTimeout(async()=>{
+    console.log('STEP 3: DB init starting');
+    try{
+      await openDB();
+      console.log('STEP 4: DB opened');
+      await loadProfs();
+      console.log('STEP 5: profiles loaded, count='+PROFS.length);
+      renderPList();
+      console.log('STEP 6: renderPList done');
+    }catch(e){
+      console.error('STEP 3-6 FAILED:',e);
+      document.body.innerHTML+='<div style="color:orange;padding:20px;font-size:14px">DB error: '+e.message+'</div>';
+    }
+  },50);
+}
+
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded', startApp);
+}else{
+  startApp();
+}
 </script>
 </body>
 </html>
