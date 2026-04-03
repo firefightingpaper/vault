@@ -531,7 +531,10 @@ async function loadProfs(){PROFS=await dbg('profiles')||[]}
 async function saveProfs(){await dbs('profiles',PROFS)}
 
 function showPanel(name){
-  ['plist','pw','new'].forEach(n=>{const el=document.getElementById(n+'-panel');if(n===name){el.classList.remove('hidden');if(n==='plist')el.style.display='flex'}else{el.classList.add('hidden');el.style.display='none'}});
+  ['plist','pw','new'].forEach(n=>{
+    const el=document.getElementById(n+'-panel');
+    el.style.display=(n===name)?'flex':'none';
+  });
   if(name==='list')renderPList();
   if(name==='pw')setTimeout(()=>document.getElementById('pw-in').focus(),300);
   if(name==='new')setTimeout(()=>document.getElementById('np-name').focus(),300);
@@ -985,17 +988,21 @@ async function syncFromGist(token,gistId,silent=false){
 function setSyncSt(msg,type){const el=document.getElementById('syncst');if(el){el.textContent=msg;el.className='syncst '+(type||'')}}
 
 // ══════════════ STARTUP ══════════════
-// Show auth immediately — never wait for DB
-showPanel('list');
+// Render auth screen immediately — synchronous, no DB needed
+document.getElementById('auth-wrap').style.display='flex';
+document.getElementById('plist-panel').style.display='flex';
+document.getElementById('pw-panel').style.display='none';
+document.getElementById('new-panel').style.display='none';
+renderPList(); // shows "No profiles yet" + create button immediately
 
+// Load DB in background — updates profile list when ready
 (async()=>{
   try{
     await openDB();
     await loadProfs();
-    renderPList();
+    renderPList(); // refresh with real profiles from DB
   }catch(e){
-    console.error('DB error:',e);
-    renderPList();
+    console.error('DB error — continuing without persistence:',e);
   }
 })();
 </script>
