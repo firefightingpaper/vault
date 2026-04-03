@@ -34,7 +34,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;m
 /* AUTH */
 .auth-wrap{position:fixed;inset:0;background:var(--bg);z-index:2000;
   display:flex;flex-direction:column;align-items:center;justify-content:center;
-  padding:40px 32px;transition:opacity .3s}
+  padding:40px 32px;transition:opacity .3s;opacity:1}
 .auth-wrap.hidden{opacity:0;pointer-events:none}
 .auth-logo{font-family:'Playfair Display',serif;font-size:48px;letter-spacing:-1px;margin-bottom:6px}
 .auth-logo span{color:var(--gold);font-style:italic}
@@ -275,7 +275,7 @@ input[type=file]{display:none}
   <div class="auth-tag">private · local · yours</div>
 
   <!-- Profile list -->
-  <div class="auth-panel" id="plist-panel">
+  <div class="auth-panel" id="plist-panel" style="display:flex;flex-direction:column">
     <div id="plist"></div>
     <div class="auth-or"><div class="auth-or-line"></div><div class="auth-or-txt">or</div><div class="auth-or-line"></div></div>
     <button class="auth-new" onclick="showPanel('new')">+ Create new profile</button>
@@ -531,7 +531,7 @@ async function loadProfs(){PROFS=await dbg('profiles')||[]}
 async function saveProfs(){await dbs('profiles',PROFS)}
 
 function showPanel(name){
-  ['plist','pw','new'].forEach(n=>document.getElementById(n+'-panel').classList[n===name?'remove':'add']('hidden'));
+  ['plist','pw','new'].forEach(n=>{const el=document.getElementById(n+'-panel');if(n===name){el.classList.remove('hidden');if(n==='plist')el.style.display='flex'}else{el.classList.add('hidden');el.style.display='none'}});
   if(name==='list')renderPList();
   if(name==='pw')setTimeout(()=>document.getElementById('pw-in').focus(),300);
   if(name==='new')setTimeout(()=>document.getElementById('np-name').focus(),300);
@@ -985,10 +985,18 @@ async function syncFromGist(token,gistId,silent=false){
 function setSyncSt(msg,type){const el=document.getElementById('syncst');if(el){el.textContent=msg;el.className='syncst '+(type||'')}}
 
 // ══════════════ STARTUP ══════════════
+// Show auth immediately — never wait for DB
+showPanel('list');
+
 (async()=>{
-  await openDB();
-  await loadProfs();
-  showPanel('list');
+  try{
+    await openDB();
+    await loadProfs();
+    renderPList();
+  }catch(e){
+    console.error('DB error:',e);
+    renderPList();
+  }
 })();
 </script>
 </body>
