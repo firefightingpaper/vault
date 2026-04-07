@@ -270,7 +270,7 @@ input[type=file]{display:none}
 <body>
 
 <!-- ══ AUTH ══ -->
-<div id="auth-wrap" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#0d0d0d;z-index:2000;flex-direction:column;align-items:center;justify-content:flex-start;padding:60px 32px 32px;overflow-y:auto;-webkit-overflow-scrolling:touch">
+<div id="auth-wrap" style="display:flex;position:fixed;top:0;left:0;right:0;bottom:0;background:#0d0d0d;z-index:2000;flex-direction:column;align-items:center;justify-content:flex-start;padding:60px 32px 32px;overflow-y:auto;-webkit-overflow-scrolling:touch">
 
   <div style="font-size:48px;color:#f2ede8;font-family:Georgia,serif;letter-spacing:-1px;margin-bottom:6px;text-align:center">Vault<span style="color:#d4a853;font-style:italic">.</span></div>
   <div style="font-size:11px;color:#4e4848;font-family:monospace;letter-spacing:1px;margin-bottom:40px;text-align:center">private · local · yours</div>
@@ -536,13 +536,16 @@ async function loadProfs(){PROFS=await dbg('profiles')||[]}
 async function saveProfs(){await dbs('profiles',PROFS)}
 
 function showPanel(name){
-  var panels=['plist','pw','new'];
-  panels.forEach(function(n){
+  // map 'list' to 'plist' to match panel IDs
+  var key=name==='list'?'plist':name;
+  var aw=document.getElementById('auth-wrap');
+  if(aw&&aw.style.display==='none')aw.style.display='flex';
+  ['plist','pw','new'].forEach(function(n){
     var el=document.getElementById(n+'-panel');
     if(!el)return;
-    el.style.display=(n===name)?'flex':'none';
+    el.style.display=(n===key)?'flex':'none';
   });
-  if(name==='list')renderPList();
+  if(key==='plist')renderPList();
   if(name==='pw'){
     var pin=document.getElementById('pw-in');
     if(pin)pin.value='';
@@ -567,36 +570,82 @@ async function deleteProfileFromList(id,name){
 function renderPList(){
   var el=document.getElementById('plist');
   if(!el)return;
+  el.innerHTML='';
   if(!PROFS.length){
-    el.innerHTML='<div style="text-align:center;color:#4e4848;font-size:13px;padding:16px 0 10px;font-family:monospace">No profiles yet</div>';
+    var msg=document.createElement('div');
+    msg.style.cssText='text-align:center;color:#4e4848;font-size:13px;padding:16px 0 10px;font-family:monospace';
+    msg.textContent='No profiles yet';
+    el.appendChild(msg);
     return;
   }
-  el.innerHTML=PROFS.map(function(p){
-    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'+
-      '<div data-pid="'+p.id+'" onclick="selProfById(this)" style="flex:1;background:#161616;border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:12px">'+
-        '<div style="width:38px;height:38px;border-radius:50%;background:#272727;display:flex;align-items:center;justify-content:center;font-size:18px;color:#d4a853;font-family:Georgia,serif;flex-shrink:0">'+p.name[0].toUpperCase()+'</div>'+
-        '<div style="flex:1;min-width:0">'+
-          '<div style="font-size:15px;color:#f2ede8;font-weight:500;margin-bottom:2px">'+p.name+'</div>'+
-          '<div style="font-size:11px;color:#4e4848;font-family:monospace">'+(p.txn_count||0)+' transactions'+(p.ts?' · '+fmtTS(p.ts):'')+'</div>'+
-        '</div>'+
-        '<div style="color:#4e4848">›</div>'+
-      '</div>'+
-      '<button data-pid="'+p.id+'" onclick="delProfById(this)" style="background:rgba(224,92,92,0.1);border:1px solid rgba(224,92,92,0.2);border-radius:12px;padding:10px 12px;color:#e05c5c;font-size:16px;cursor:pointer;flex-shrink:0">🗑</button>'+
-    '</div>';
-  }).join('');
+  PROFS.forEach(function(p){
+    var row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:8px;margin-bottom:10px';
+
+    // Profile card
+    var card=document.createElement('div');
+    card.style.cssText='flex:1;background:#161616;border:1px solid rgba(255,255,255,0.08);border-radius:14px;padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:12px';
+    card.onclick=(function(pid){return function(){selProf(pid);};})(p.id);
+
+    var avatar=document.createElement('div');
+    avatar.style.cssText='width:38px;height:38px;border-radius:50%;background:#272727;display:flex;align-items:center;justify-content:center;font-size:18px;color:#d4a853;font-family:Georgia,serif;flex-shrink:0';
+    avatar.textContent=p.name[0].toUpperCase();
+
+    var info=document.createElement('div');
+    info.style.cssText='flex:1;min-width:0';
+    var name=document.createElement('div');
+    name.style.cssText='font-size:15px;color:#f2ede8;font-weight:500;margin-bottom:2px';
+    name.textContent=p.name;
+    var meta=document.createElement('div');
+    meta.style.cssText='font-size:11px;color:#4e4848;font-family:monospace';
+    meta.textContent=(p.txn_count||0)+' transactions'+(p.ts?' · '+fmtTS(p.ts):'');
+    info.appendChild(name);
+    info.appendChild(meta);
+
+    var arrow=document.createElement('div');
+    arrow.style.cssText='color:#4e4848';
+    arrow.textContent='›';
+
+    card.appendChild(avatar);
+    card.appendChild(info);
+    card.appendChild(arrow);
+
+    // Delete button
+    var btn=document.createElement('button');
+    btn.style.cssText='background:rgba(224,92,92,0.1);border:1px solid rgba(224,92,92,0.2);border-radius:12px;padding:10px 12px;color:#e05c5c;font-size:16px;cursor:pointer;flex-shrink:0';
+    btn.textContent='🗑';
+    btn.onclick=(function(pid,pname){return function(e){
+      e.stopPropagation();
+      delProf(pid,pname);
+    };})(p.id,p.name);
+
+    row.appendChild(card);
+    row.appendChild(btn);
+    el.appendChild(row);
+  });
 }
 
 
 function selProfById(el){selProf(el.dataset.pid)}
-async function delProfById(el){
-  const id=el.dataset.pid;
-  const p=PROFS.find(p=>p.id===id);
-  if(!p)return;
-  if(!confirm('Delete profile "'+p.name+'" and all its data?'))return;
-  PROFS=PROFS.filter(x=>x.id!==id);
-  try{await saveProfs()}catch(e){console.error(e)}
-  try{await dbs(pk(id,'txns'),[]);await dbs(pk(id,'man'),[]);}catch(e){}
-  renderPList();
+function delProfById(el){
+  delProf(el.dataset.pid);
+}
+function delProf(id,name){
+  var pname=name||(PROFS.find(function(x){return x.id===id;})||{}).name||'this profile';
+  vconfirm('Delete Profile','Delete "'+pname+'" and all its data? This cannot be undone.','Delete',function(ok){
+    if(!ok)return;
+    PROFS=PROFS.filter(function(x){return x.id!==id;});
+    if(db){
+      try{
+        var tx=db.transaction('s','readwrite');
+        var st=tx.objectStore('s');
+        st.put(PROFS,'profiles');
+        st.put([],'p_'+id+'_txns');
+        st.put([],'p_'+id+'_man');
+      }catch(e){console.warn('DB delete error:',e);}
+    }
+    renderPList();
+  });
 }
 function selProf(id){
   SEL=PROFS.find(p=>p.id===id);
@@ -657,10 +706,10 @@ function switchProfile(){
 }
 function showAuthScreen(){
   var aw=document.getElementById('auth-wrap');
-  if(!aw)return;
-  aw.style.display='flex';
+  if(aw)aw.style.display='flex';
   showPanel('list');
 }
+
 
 
 // ══════════════ STATE ══════════════
@@ -978,19 +1027,43 @@ async function exportData(){
   a.href=url;a.download='transactions.json';a.click();URL.revokeObjectURL(url);
 }
 
-async function confirmClear(){
-  if(confirm('Delete all transactions for this profile? Cannot be undone.')){
-    ALL=[];MAN=[];await persist(null);closeSet();rebuild();showEmpty();
-  }
+function confirmClear(){
+  vconfirm('Clear Data','Delete all transactions for this profile? This cannot be undone.','Clear',function(ok){
+    if(!ok)return;
+    ALL=[];MAN=[];
+    if(db){
+      try{
+        var tx=db.transaction('s','readwrite');
+        var st=tx.objectStore('s');
+        st.put([],'p_'+CUR+'_txns');
+        st.put([],'p_'+CUR+'_man');
+        st.put(null,'p_'+CUR+'_ts');
+        var p=PROFS.find(function(x){return x.id===CUR;});
+        if(p){p.txn_count=0;p.ts=null;st.put(PROFS,'profiles');}
+      }catch(e){console.warn('clear error:',e);}
+    }
+    closeSet();rebuild();showEmpty();
+  });
 }
 
-async function confirmDelProfile(){
-  const p=PROFS.find(p=>p.id===CUR);if(!p)return;
-  if(confirm(`Permanently delete profile "${p.name}" and all data? Cannot be undone.`)){
-    PROFS=PROFS.filter(p=>p.id!==CUR);await saveProfs();
-    await dbs(pk(CUR,'txns'),[]);await dbs(pk(CUR,'man'),[]);
+function confirmDelProfile(){
+  var p=PROFS.find(function(x){return x.id===CUR;});
+  if(!p)return;
+  vconfirm('Delete Profile','Permanently delete "'+p.name+'" and all its data? This cannot be undone.','Delete',function(ok){
+    if(!ok)return;
+    var id=CUR;
+    PROFS=PROFS.filter(function(x){return x.id!==id;});
+    if(db){
+      try{
+        var tx=db.transaction('s','readwrite');
+        var st=tx.objectStore('s');
+        st.put(PROFS,'profiles');
+        st.put([],'p_'+id+'_txns');
+        st.put([],'p_'+id+'_man');
+      }catch(e){console.warn('delete profile error:',e);}
+    }
     switchProfile();
-  }
+  });
 }
 
 // ══════════════ GIST SYNC ══════════════
@@ -1054,39 +1127,50 @@ async function syncFromGist(token,gistId,silent=false){
 
 function setSyncSt(msg,type){const el=document.getElementById('syncst');if(el){el.textContent=msg;el.className='syncst '+(type||'')}}
 
-// ══════════════ STARTUP ══════════════
-function startApp(){
-  console.log('STEP 1: startApp called');
-  try{
-    showAuthScreen();
-    console.log('STEP 2: showAuthScreen done');
-  }catch(e){
-    console.error('STEP 2 FAILED: showAuthScreen error:',e);
-    // Show raw error on screen so we can see it on iPhone
-    document.body.innerHTML='<div style="color:red;padding:20px;font-size:14px">showAuthScreen error: '+e.message+'<br>'+e.stack+'</div>';
-    return;
+// ══════════════ CUSTOM CONFIRM ══════════════
+function vconfirm(title, msg, okLabel, callback){
+  var overlay=document.getElementById('cfm-overlay');
+  var titleEl=document.getElementById('cfm-title');
+  var msgEl=document.getElementById('cfm-msg');
+  var okBtn=document.getElementById('cfm-ok');
+  var cancelBtn=document.getElementById('cfm-cancel');
+  titleEl.textContent=title;
+  msgEl.textContent=msg;
+  okBtn.textContent=okLabel||'Delete';
+  overlay.style.display='flex';
+  function cleanup(){
+    overlay.style.display='none';
+    okBtn.onclick=null;
+    cancelBtn.onclick=null;
   }
-  setTimeout(async()=>{
-    console.log('STEP 3: DB init starting');
-    try{
-      await openDB();
-      console.log('STEP 4: DB opened');
-      await loadProfs();
-      console.log('STEP 5: profiles loaded, count='+PROFS.length);
-      renderPList();
-      console.log('STEP 6: renderPList done');
-    }catch(e){
-      console.error('STEP 3-6 FAILED:',e);
-      document.body.innerHTML+='<div style="color:orange;padding:20px;font-size:14px">DB error: '+e.message+'</div>';
-    }
-  },50);
+  okBtn.onclick=function(){cleanup();callback(true);};
+  cancelBtn.onclick=function(){cleanup();callback(false);};
 }
 
-if(document.readyState==='loading'){
-  document.addEventListener('DOMContentLoaded', startApp);
-}else{
-  startApp();
-}
+// ══════════════ STARTUP ══════════════
+// auth-wrap starts visible in HTML — just load DB and populate profiles
+setTimeout(async function(){
+  try{
+    await openDB();
+    await loadProfs();
+  }catch(e){
+    console.warn('DB unavailable:',e);
+  }
+  renderPList();
+  populateCatSel();
+}, 0);
 </script>
+
+<!-- ── CONFIRM MODAL ── -->
+<div id="cfm-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9000;align-items:center;justify-content:center;padding:32px">
+  <div style="background:#1e1e1e;border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:24px;width:100%;max-width:300px">
+    <div id="cfm-title" style="font-size:17px;color:#f2ede8;font-weight:600;margin-bottom:8px;font-family:Georgia,serif"></div>
+    <div id="cfm-msg" style="font-size:13px;color:#9a9090;line-height:1.5;margin-bottom:24px;font-family:monospace"></div>
+    <div style="display:flex;gap:10px">
+      <button id="cfm-cancel" style="flex:1;padding:13px;background:transparent;border:1px solid rgba(255,255,255,0.1);border-radius:12px;color:#9a9090;font-size:14px;cursor:pointer;font-family:sans-serif">Cancel</button>
+      <button id="cfm-ok" style="flex:1;padding:13px;background:#e05c5c;border:none;border-radius:12px;color:white;font-size:14px;font-weight:600;cursor:pointer;font-family:sans-serif">Delete</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
